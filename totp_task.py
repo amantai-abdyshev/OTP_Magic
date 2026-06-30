@@ -7,6 +7,8 @@ import pyotp
 from telegram import Bot
 from telegram.error import RetryAfter, BadRequest
 
+import database as db
+
 logger = logging.getLogger(__name__)
 
 # chat_id → asyncio.Task
@@ -27,9 +29,17 @@ def _format_message(label: str, display_code: str, remaining: int) -> str:
     )
 
 
-async def _totp_loop(bot: Bot, chat_id: int, label: str, secret: str, period: int, password: str) -> None:
+async def _totp_loop(
+    bot: Bot,
+    chat_id: int,
+    label: str,
+    secret: str,
+    period: int,
+    password: str,
+    active_message_id: int | None,
+) -> None:
     totp = pyotp.TOTP(secret, interval=period)
-    message_id: int | None = None
+    message_id = active_message_id
 
     try:
         while True:
@@ -42,6 +52,7 @@ async def _totp_loop(bot: Bot, chat_id: int, label: str, secret: str, period: in
             if message_id is None:
                 msg = await bot.send_message(chat_id, text, parse_mode=PARSE_MODE)
                 message_id = msg.message_id
+                db.set_active_message_id(chat_id, label, message_id)
             else:
                 try:
                     await bot.edit_message_text(
@@ -60,9 +71,11 @@ async def _totp_loop(bot: Bot, chat_id: int, label: str, secret: str, period: in
                     else:
                         logger.warning("edit_message_text failed: %s", e)
                         message_id = None
+                        db.set_active_message_id(chat_id, label, None)
                 except Exception as e:
                     logger.error("Unexpected error in totp_loop: %s", e)
                     message_id = None
+                    db.set_active_message_id(chat_id, label, None)
 
             await asyncio.sleep(5)
 
@@ -70,10 +83,18 @@ async def _totp_loop(bot: Bot, chat_id: int, label: str, secret: str, period: in
         logger.info("TOTP task cancelled for chat_id=%s", chat_id)
 
 
-def start_task(bot: Bot, chat_id: int, label: str, secret: str, period: int = 30, password: str = "") -> None:
+def start_task(
+    bot: Bot,
+    chat_id: int,
+    label: str,
+    secret: str,
+    period: int = 30,
+    password: str = "",
+    active_message_id: int | None = None,
+) -> None:
     stop_task(chat_id)
     task = asyncio.create_task(
-        _totp_loop(bot, chat_id, label, secret, period, password),
+        _totp_loop(bot, chat_id, label, secret, period, password, active_message_id),
         name=f"totp_{chat_id}",
     )
     _tasks[chat_id] = task

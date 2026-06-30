@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 TOTP_PREFIX = "otpauth://totp/"
 _PENDING_KEY = "pending_account"
+_BOT_MESSAGE_IDS_KEY = "bot_message_ids"
 
 _PW_MIN = 8
 _PW_MAX = 128
@@ -29,8 +30,36 @@ def _validate_password(pw: str) -> str | None:
     return None
 
 
+async def _delete_message(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int | None) -> None:
+    if message_id is None:
+        return
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except Exception:
+        pass
+
+
+async def _reply_tracked(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs):
+    msg = await context.bot.send_message(update.effective_chat.id, text, **kwargs)
+    context.chat_data.setdefault(_BOT_MESSAGE_IDS_KEY, []).append(msg.message_id)
+    return msg
+
+
+async def _cleanup_chat_messages(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *extra_message_ids: int | None,
+) -> None:
+    chat_id = update.effective_chat.id
+    message_ids = context.chat_data.pop(_BOT_MESSAGE_IDS_KEY, [])
+    message_ids.extend(extra_message_ids)
+    for message_id in message_ids:
+        await _delete_message(context, chat_id, message_id)
+
+
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Send QR code photo to add account.")
+    await _cleanup_chat_messages(update, context, update.message.message_id)
+    await _reply_tracked(update, context, "Send QR code photo to add account.")
 
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -43,7 +72,10 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     decoded = decode_qr(buf.getvalue())
 
     if not decoded:
-        await update.message.reply_text(
+        await _cleanup_chat_messages(update, context, update.message.message_id)
+        await _reply_tracked(
+            update,
+            context,
             "No QR code detected. Make sure the code is clearly visible and try again."
         )
         return
@@ -52,7 +84,10 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if not raw.startswith(TOTP_PREFIX):
         preview = raw[:60] + ("..." if len(raw) > 60 else "")
-        await update.message.reply_text(
+        await _cleanup_chat_messages(update, context, update.message.message_id)
+        await _reply_tracked(
+            update,
+            context,
             "QR code is not a TOTP URI.\n"
             f"Expected: otpauth://totp/...\n"
             f"Got: {preview}\n\n"
@@ -70,7 +105,8 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     period = int(params.get("period", ["30"])[0])
 
     if not secret:
-        await update.message.reply_text("TOTP URI missing 'secret' parameter. Invalid QR code.")
+        await _cleanup_chat_messages(update, context, update.message.message_id)
+        await _reply_tracked(update, context, "TOTP URI missing 'secret' parameter. Invalid QR code.")
         return
 
     display_label = f"{issuer}:{label}" if issuer and issuer not in label else label
@@ -84,7 +120,10 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "user_id": update.effective_user.id,
     }
 
-    await update.message.reply_text(
+    await _cleanup_chat_messages(update, context, update.message.message_id)
+    await _reply_tracked(
+        update,
+        context,
         f"✅ QR scanned: *{display_label}*\n\n"
         "Now set a password prefix for your codes.\n"
         "It will be prepended to every OTP: `prefix123456`\n\n"
@@ -103,8 +142,10 @@ async def password_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     pw = update.message.text  # do NOT strip — spec requires exact whitespace preservation
 
     error = _validate_password(pw)
+    await _delete_message(context, update.effective_chat.id, update.message.message_id)
     if error:
-        await update.message.reply_text(f"❌ {error}\n\nTry again or send /cancel.")
+        await _cleanup_chat_messages(update, context)
+        await _reply_tracked(update, context, f"❌ {error}\n\nTry again or send /cancel.")
         return
 
     label = pending["label"]
@@ -114,28 +155,37 @@ async def password_text_handler(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = pending["user_id"]
 
     try:
+        existing = db.get_account(user_id, label)
         db.save_account(user_id, chat_id, label, secret, period, password=pw)
     except Exception as e:
         logger.error("save_account failed: %s", e)
-        await update.message.reply_text("Failed to save account. Please try again.")
+        await _cleanup_chat_messages(update, context)
+        await _reply_tracked(update, context, "Failed to save account. Please try again.")
         return
 
     # Clear pending — QR data no longer needed
     del context.user_data[_PENDING_KEY]
 
-    await update.message.reply_text(
-        f"✅ Account saved: *{label}*\nGenerating code…",
-        parse_mode="Markdown",
-    )
+    await _cleanup_chat_messages(update, context)
 
-    totp_task.start_task(context.bot, chat_id, label, secret, period, password=pw)
+    totp_task.start_task(
+        context.bot,
+        chat_id,
+        label,
+        secret,
+        period,
+        password=pw,
+        active_message_id=existing.active_message_id if existing else None,
+    )
 
 
 async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if context.user_data.pop(_PENDING_KEY, None) is not None:
-        await update.message.reply_text("Cancelled. Pending QR cleared.")
+        await _cleanup_chat_messages(update, context, update.message.message_id)
+        await _reply_tracked(update, context, "Cancelled. Pending QR cleared.")
     else:
-        await update.message.reply_text("Nothing to cancel.")
+        await _cleanup_chat_messages(update, context, update.message.message_id)
+        await _reply_tracked(update, context, "Nothing to cancel.")
 
 
 async def stop_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -151,14 +201,20 @@ async def delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
 
+    accounts = db.get_all_accounts(user_id)
     context.user_data.pop(_PENDING_KEY, None)
     totp_task.stop_task(chat_id)
+    await _cleanup_chat_messages(update, context, update.message.message_id)
+    for account in accounts:
+        if account.chat_id == chat_id:
+            await _delete_message(context, chat_id, account.active_message_id)
+
     count = db.delete_all_accounts(user_id)
 
     if count:
-        await update.message.reply_text(f"🗑 Deleted {count} account(s). All secrets removed.")
+        await _reply_tracked(update, context, f"🗑 Deleted {count} account(s). All secrets removed.")
     else:
-        await update.message.reply_text("No accounts stored.")
+        await _reply_tracked(update, context, "No accounts stored.")
 
 
 async def list_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

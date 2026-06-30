@@ -42,6 +42,7 @@ async def post_init(app: Application) -> None:
             account.secret,
             account.period,
             password=account.password,
+            active_message_id=account.active_message_id,
         )
 
 

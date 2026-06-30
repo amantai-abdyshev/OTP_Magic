@@ -30,17 +30,21 @@ def init_db() -> None:
                 period            INTEGER NOT NULL DEFAULT 30,
                 chat_id           INTEGER NOT NULL,
                 encrypted_password BLOB,
+                active_message_id INTEGER,
                 created_at        TEXT    DEFAULT (datetime('now')),
                 PRIMARY KEY (user_id, label)
             )
             """
         )
-        # Migration: add column if existing DB lacks it
-        try:
-            conn.execute("ALTER TABLE accounts ADD COLUMN encrypted_password BLOB")
-            logger.info("Migrated accounts table: added encrypted_password column")
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        for column_sql, column_name in (
+            ("ALTER TABLE accounts ADD COLUMN encrypted_password BLOB", "encrypted_password"),
+            ("ALTER TABLE accounts ADD COLUMN active_message_id INTEGER", "active_message_id"),
+        ):
+            try:
+                conn.execute(column_sql)
+                logger.info("Migrated accounts table: added %s column", column_name)
+            except sqlite3.OperationalError:
+                pass
         conn.commit()
 
 
@@ -52,6 +56,7 @@ class Account:
     period: int
     chat_id: int
     password: str = field(default="")
+    active_message_id: int | None = None
 
 
 def _decrypt_password(fernet: Fernet, enc_pw: bytes | None) -> str:
@@ -97,32 +102,50 @@ def save_account(
 def get_account(user_id: int, label: str) -> Account | None:
     with sqlite3.connect(_DB_PATH) as conn:
         row = conn.execute(
-            "SELECT user_id, label, encrypted_secret, period, chat_id, encrypted_password "
+            "SELECT user_id, label, encrypted_secret, period, chat_id, encrypted_password, active_message_id "
             "FROM accounts WHERE user_id=? AND label=?",
             (user_id, label),
         ).fetchone()
     if row is None:
         return None
-    uid, lbl, enc_s, period, chat_id, enc_pw = row
+    uid, lbl, enc_s, period, chat_id, enc_pw, active_message_id = row
     fernet = _get_fernet()
     secret = fernet.decrypt(enc_s).decode()
     password = _decrypt_password(fernet, enc_pw)
-    return Account(user_id=uid, label=lbl, secret=secret, period=period, chat_id=chat_id, password=password)
+    return Account(
+        user_id=uid,
+        label=lbl,
+        secret=secret,
+        period=period,
+        chat_id=chat_id,
+        password=password,
+        active_message_id=active_message_id,
+    )
 
 
 def get_all_accounts(user_id: int) -> list[Account]:
     with sqlite3.connect(_DB_PATH) as conn:
         rows = conn.execute(
-            "SELECT user_id, label, encrypted_secret, period, chat_id, encrypted_password "
+            "SELECT user_id, label, encrypted_secret, period, chat_id, encrypted_password, active_message_id "
             "FROM accounts WHERE user_id=?",
             (user_id,),
         ).fetchall()
     fernet = _get_fernet()
     result = []
-    for uid, lbl, enc_s, period, chat_id, enc_pw in rows:
+    for uid, lbl, enc_s, period, chat_id, enc_pw, active_message_id in rows:
         secret = fernet.decrypt(enc_s).decode()
         password = _decrypt_password(fernet, enc_pw)
-        result.append(Account(user_id=uid, label=lbl, secret=secret, period=period, chat_id=chat_id, password=password))
+        result.append(
+            Account(
+                user_id=uid,
+                label=lbl,
+                secret=secret,
+                period=period,
+                chat_id=chat_id,
+                password=password,
+                active_message_id=active_message_id,
+            )
+        )
     return result
 
 
@@ -130,18 +153,37 @@ def get_all_active() -> list[Account]:
     """Return every stored account — used for task respawn on restart."""
     with sqlite3.connect(_DB_PATH) as conn:
         rows = conn.execute(
-            "SELECT user_id, label, encrypted_secret, period, chat_id, encrypted_password FROM accounts"
+            "SELECT user_id, label, encrypted_secret, period, chat_id, encrypted_password, active_message_id FROM accounts"
         ).fetchall()
     fernet = _get_fernet()
     result = []
-    for uid, lbl, enc_s, period, chat_id, enc_pw in rows:
+    for uid, lbl, enc_s, period, chat_id, enc_pw, active_message_id in rows:
         try:
             secret = fernet.decrypt(enc_s).decode()
             password = _decrypt_password(fernet, enc_pw)
-            result.append(Account(user_id=uid, label=lbl, secret=secret, period=period, chat_id=chat_id, password=password))
+            result.append(
+                Account(
+                    user_id=uid,
+                    label=lbl,
+                    secret=secret,
+                    period=period,
+                    chat_id=chat_id,
+                    password=password,
+                    active_message_id=active_message_id,
+                )
+            )
         except Exception:
             logger.warning("Failed to decrypt account user_id=%s label=%s — skipping", uid, lbl)
     return result
+
+
+def set_active_message_id(chat_id: int, label: str, message_id: int | None) -> None:
+    with sqlite3.connect(_DB_PATH) as conn:
+        conn.execute(
+            "UPDATE accounts SET active_message_id=? WHERE chat_id=? AND label=?",
+            (message_id, chat_id, label),
+        )
+        conn.commit()
 
 
 def delete_account(user_id: int, label: str) -> bool:
