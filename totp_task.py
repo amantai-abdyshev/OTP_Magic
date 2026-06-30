@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import time
 
@@ -10,15 +11,18 @@ logger = logging.getLogger(__name__)
 
 # chat_id → asyncio.Task
 _tasks: dict[int, asyncio.Task] = {}
+PARSE_MODE = "HTML"
 
 
 def _format_message(label: str, display_code: str, remaining: int) -> str:
     bar_total = 30
     filled = round((remaining / bar_total) * 10)
     bar = "█" * filled + "░" * (10 - filled)
+    safe_label = html.escape(label)
+    safe_display_code = html.escape(display_code)
     return (
-        f"🔐 *{label}*\n"
-        f"`{display_code}`\n"
+        f"🔐 <b>{safe_label}</b>\n"
+        f"<tg-spoiler>{safe_display_code}</tg-spoiler>\n"
         f"⏱ {bar} {remaining}s"
     )
 
@@ -36,7 +40,7 @@ async def _totp_loop(bot: Bot, chat_id: int, label: str, secret: str, period: in
             text = _format_message(label, display_code, remaining)
 
             if message_id is None:
-                msg = await bot.send_message(chat_id, text, parse_mode="Markdown")
+                msg = await bot.send_message(chat_id, text, parse_mode=PARSE_MODE)
                 message_id = msg.message_id
             else:
                 try:
@@ -44,7 +48,7 @@ async def _totp_loop(bot: Bot, chat_id: int, label: str, secret: str, period: in
                         text,
                         chat_id=chat_id,
                         message_id=message_id,
-                        parse_mode="Markdown",
+                        parse_mode=PARSE_MODE,
                     )
                 except RetryAfter as e:
                     logger.warning("Rate limited chat_id=%s, retry in %ss", chat_id, e.retry_after)
