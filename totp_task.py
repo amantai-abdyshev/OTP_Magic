@@ -44,7 +44,6 @@ async def _totp_loop(
     label: str,
     secret: str,
     period: int,
-    password: str,
     active_message_id: int | None,
 ) -> None:
     totp = pyotp.TOTP(secret, interval=period)
@@ -55,8 +54,7 @@ async def _totp_loop(
             now = time.time()
             remaining = period - (int(now) % period)
             otp = totp.now()
-            display_code = f"{password}{otp}" if password else otp
-            text = _format_message(label, display_code, remaining)
+            text = _format_message(label, otp, remaining)
 
             if message_id is None:
                 msg = await bot.send_message(chat_id, text, parse_mode=PARSE_MODE, reply_markup=_KEYBOARD)
@@ -99,12 +97,11 @@ def start_task(
     label: str,
     secret: str,
     period: int = 30,
-    password: str = "",
     active_message_id: int | None = None,
 ) -> None:
     stop_task(chat_id)
     task = asyncio.create_task(
-        _totp_loop(bot, chat_id, label, secret, period, password, active_message_id),
+        _totp_loop(bot, chat_id, label, secret, period, active_message_id),
         name=f"totp_{chat_id}",
     )
     _tasks[chat_id] = task

@@ -2,20 +2,17 @@
 
 A Telegram bot that replaces Google Authenticator. Send it a QR code from any
 service's 2FA setup, and it keeps a live, auto-refreshing TOTP code in your
-chat — hidden behind a spoiler tag, prefixed with a password of your choice,
-with a countdown until the next code.
+chat — hidden behind a spoiler tag, with a countdown until the next code.
 
 ## How it works
 
 1. `/start` — the bot asks for a QR photo.
 2. Send a photo of the 2FA QR code (`otpauth://totp/...`). The bot decodes it
    and extracts the secret.
-3. Set a password prefix (8–128 characters). It is displayed in front of every
-   code, so only you know where the prefix ends and the code begins.
-4. The bot stores the secret and password encrypted (Fernet) in a local SQLite
-   database, then posts a single message with the current 6-digit code,
-   auto-updated every 5 seconds with a countdown bar. Inline ⏹ Stop / 🗑 Delete
-   buttons live on the message itself.
+3. The bot stores the secret encrypted (Fernet) in a local SQLite database,
+   then posts a single message with the current 6-digit code, auto-updated
+   every 5 seconds with a countdown bar. Inline ⏹ Stop / 🗑 Delete buttons live
+   on the message itself.
 
 Active codes survive bot restarts — the bot resumes editing the same message.
 
@@ -27,7 +24,6 @@ Active codes survive bot restarts — the bot resumes editing the same message.
 | `/list` | Show all stored account labels |
 | `/stop` | Stop the live code updates in this chat |
 | `/delete` | Delete **all** stored secrets for your user |
-| `/cancel` | Abort a pending QR-add flow |
 
 ## Running locally
 
@@ -67,8 +63,8 @@ python bot.py
 
 ## Security notes
 
-- TOTP secrets and password prefixes are encrypted at rest (Fernet) and
-  decrypted only in memory at code-generation time.
+- TOTP secrets are encrypted at rest (Fernet) and decrypted only in memory
+  at code-generation time.
 - Codes are wrapped in Telegram spoiler tags — hidden until tapped.
 - **Accepted trade-off**: if the bot account or host is compromised, all
   stored 2FA secrets are exposed. This is a single point of failure compared

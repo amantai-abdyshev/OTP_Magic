@@ -15,13 +15,12 @@ import database as db
 import totp_task
 from handlers import (
     callback_handler,
-    cancel_handler,
     delete_handler,
     list_handler,
-    password_text_handler,
     photo_handler,
     start_handler,
     stop_handler,
+    text_hint_handler,
 )
 
 load_dotenv()
@@ -45,7 +44,6 @@ async def post_init(app: Application) -> None:
         BotCommand("list", "Show stored accounts"),
         BotCommand("stop", "Stop live code updates"),
         BotCommand("delete", "Delete all stored accounts"),
-        BotCommand("cancel", "Cancel pending QR add"),
     ])
 
     accounts = db.get_all_active()
@@ -57,7 +55,6 @@ async def post_init(app: Application) -> None:
             account.label,
             account.secret,
             account.period,
-            password=account.password,
             active_message_id=account.active_message_id,
         )
 
@@ -71,10 +68,9 @@ def main() -> None:
     app.add_handler(CommandHandler("stop", stop_handler))
     app.add_handler(CommandHandler("delete", delete_handler))
     app.add_handler(CommandHandler("list", list_handler))
-    app.add_handler(CommandHandler("cancel", cancel_handler))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, password_text_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_hint_handler))
 
     logger.info("Bot starting…")
     app.run_polling()
