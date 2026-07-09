@@ -2,11 +2,19 @@ import logging
 import os
 
 from dotenv import load_dotenv
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram import BotCommand
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    MessageHandler,
+    filters,
+)
 
 import database as db
 import totp_task
 from handlers import (
+    callback_handler,
     cancel_handler,
     delete_handler,
     list_handler,
@@ -32,6 +40,14 @@ async def post_init(app: Application) -> None:
         logger.error("DB init failed: %s", e)
         raise
 
+    await app.bot.set_my_commands([
+        BotCommand("start", "Add account (send QR photo)"),
+        BotCommand("list", "Show stored accounts"),
+        BotCommand("stop", "Stop live code updates"),
+        BotCommand("delete", "Delete all stored accounts"),
+        BotCommand("cancel", "Cancel pending QR add"),
+    ])
+
     accounts = db.get_all_active()
     logger.info("Respawning tasks for %d stored account(s)", len(accounts))
     for account in accounts:
@@ -56,6 +72,7 @@ def main() -> None:
     app.add_handler(CommandHandler("delete", delete_handler))
     app.add_handler(CommandHandler("list", list_handler))
     app.add_handler(CommandHandler("cancel", cancel_handler))
+    app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, password_text_handler))
 

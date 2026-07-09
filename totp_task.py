@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import asyncio
 import html
 import logging
 import time
 
 import pyotp
-from telegram import Bot
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import RetryAfter, BadRequest
 
 import database as db
@@ -14,6 +16,13 @@ logger = logging.getLogger(__name__)
 # chat_id → asyncio.Task
 _tasks: dict[int, asyncio.Task] = {}
 PARSE_MODE = "HTML"
+
+_KEYBOARD = InlineKeyboardMarkup(
+    [[
+        InlineKeyboardButton("⏹ Stop", callback_data="totp:stop"),
+        InlineKeyboardButton("🗑 Delete", callback_data="totp:delete"),
+    ]]
+)
 
 
 def _format_message(label: str, display_code: str, remaining: int) -> str:
@@ -50,7 +59,7 @@ async def _totp_loop(
             text = _format_message(label, display_code, remaining)
 
             if message_id is None:
-                msg = await bot.send_message(chat_id, text, parse_mode=PARSE_MODE)
+                msg = await bot.send_message(chat_id, text, parse_mode=PARSE_MODE, reply_markup=_KEYBOARD)
                 message_id = msg.message_id
                 db.set_active_message_id(chat_id, label, message_id)
             else:
@@ -60,6 +69,7 @@ async def _totp_loop(
                         chat_id=chat_id,
                         message_id=message_id,
                         parse_mode=PARSE_MODE,
+                        reply_markup=_KEYBOARD,
                     )
                 except RetryAfter as e:
                     logger.warning("Rate limited chat_id=%s, retry in %ss", chat_id, e.retry_after)

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import io
 import logging
 from urllib.parse import urlparse, parse_qs
@@ -58,7 +60,6 @@ async def _cleanup_chat_messages(
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _cleanup_chat_messages(update, context, update.message.message_id)
     await _reply_tracked(update, context, "Send QR code photo to add account.")
 
 
@@ -215,6 +216,28 @@ async def delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await _reply_tracked(update, context, f"🗑 Deleted {count} account(s). All secrets removed.")
     else:
         await _reply_tracked(update, context, "No accounts stored.")
+
+
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    user_id = query.from_user.id
+    chat_id = query.message.chat_id
+    action = query.data
+
+    if action == "totp:stop":
+        totp_task.stop_task(chat_id)
+        await query.answer("Stopped")
+        await query.edit_message_text("⏹ Stopped. Send /start to resume.")
+
+    elif action == "totp:delete":
+        totp_task.stop_task(chat_id)
+        count = db.delete_all_accounts(user_id)
+        await query.answer("Deleted" if count else "Nothing to delete")
+        text = f"🗑 Deleted {count} account(s). All secrets removed." if count else "No accounts stored."
+        await query.edit_message_text(text)
+
+    else:
+        await query.answer()
 
 
 async def list_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
