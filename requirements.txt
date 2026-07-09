@@ -1,4 +1,4 @@
-python-telegram-bot[job-queue]>=21.0
+python-telegram-bot>=21.0
 pyotp>=2.9.0
 Pillow>=10.0.0
 opencv-python-headless>=4.8.0

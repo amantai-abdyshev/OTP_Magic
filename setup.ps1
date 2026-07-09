@@ -102,7 +102,6 @@ if (-not (Test-Path $EnvFile)) {
     @"
 BOT_TOKEN=$BotToken
 ENCRYPTION_KEY=$EncryptionKey
-EDIT_INTERVAL=5
 "@ | Set-Content -Path $EnvFile -Encoding utf8NoBOM
 
     Info ".env written. Keep it safe - it holds your encryption key."

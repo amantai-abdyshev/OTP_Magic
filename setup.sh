@@ -96,7 +96,6 @@ if [[ ! -f "$ENV_FILE" ]]; then
     cat > "$ENV_FILE" <<EOF
 BOT_TOKEN=${BOT_TOKEN}
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
-EDIT_INTERVAL=5
 EOF
 
     info ".env written. Keep it safe — it holds your encryption key."
