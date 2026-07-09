@@ -41,6 +41,13 @@ Active codes survive bot restarts — the bot resumes editing the same message.
 The script installs Python if needed, creates a venv, installs dependencies,
 prompts for your bot token, generates an encryption key, and starts the bot.
 
+**Windows note:** if PowerShell blocks the script with an "execution policy" /
+"not digitally signed" error, run it with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
 ### Manual setup
 
 ```bash
