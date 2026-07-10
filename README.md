@@ -54,6 +54,41 @@ cp .env.example .env   # then edit .env
 python bot.py
 ```
 
+### Run in a container (Apple Container / Docker)
+
+Prefer a container? The repo ships a `Dockerfile` that works with
+[Apple Container](https://github.com/apple/container) (macOS 26+, Apple
+Silicon) and Docker alike.
+
+**One command:**
+
+```bash
+./deploy_container.sh   # installs runtime if needed, prompts BOT_TOKEN, builds, runs
+```
+
+Re-run the same script to upgrade — it rebuilds and replaces the container;
+data survives.
+
+**Or manually:**
+
+```bash
+# Apple Container
+container system start
+container build -t otp-magic .
+mkdir -p ~/.otp_magic
+container run -d --name otp-magic --env-file .env \
+  -v ~/.otp_magic:/data otp-magic
+
+# Docker — identical commands, just replace `container` with `docker`
+```
+
+- `.env` must contain `BOT_TOKEN` and `ENCRYPTION_KEY` (see the table below;
+  copy `.env.example`).
+- The SQLite database lives on the host at `~/.otp_magic/otp_magic.db` — it
+  survives container rebuilds and upgrades.
+- Upgrade: `container build -t otp-magic .` again, then stop/remove the old
+  container and re-run. Active codes resume automatically after restart.
+
 ### Environment variables (`.env`)
 
 | Variable | Description |

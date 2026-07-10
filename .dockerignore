@@ -1,0 +1,8 @@
+.venv
+.git
+.env
+otp_magic.db
+.vscode
+*.md
+setup.sh
+setup.ps1
